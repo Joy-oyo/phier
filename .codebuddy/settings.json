@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/homebrew/Cellar/node/25.2.1/bin/node' '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/telemetry.cjs' hook --ide 'codebuddy' --cwd '/Users/jiayichen/Documents/GitHub/phier'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc/hooks/gate_slice_read.py\" ] || python3 \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc/hooks/gate_slice_read.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc/hooks/topic_phase_gate.py\" ] || python3 \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc/hooks/topic_phase_gate.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc/hooks/gate_slice_write.py\" ] || python3 \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc/hooks/gate_slice_write.py\""
+          },
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc-conference/hooks/pretooluse_require_business_decisions.py\" ] || python3 \"${CLAUDE_PLUGIN_ROOT:-/Users/jiayichen/Documents/GitHub/phier/.codebuddy}/skills/trtc-conference/hooks/pretooluse_require_business_decisions.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/homebrew/Cellar/node/25.2.1/bin/node' '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/stop-hook-dispatcher.cjs' --ide 'codebuddy' --runtime-path '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/telemetry.cjs' --cwd '/Users/jiayichen/Documents/GitHub/phier' --guard-path '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/hooks/stop_require_apply_evidence.py'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "ask_followup_question|ask_user_question|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/homebrew/Cellar/node/25.2.1/bin/node' '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/stop-hook-dispatcher.cjs' --ide 'codebuddy' --runtime-path '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/telemetry.cjs' --cwd '/Users/jiayichen/Documents/GitHub/phier' --guard-path '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/hooks/stop_require_apply_evidence.py'"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Write|Edit|Grep|Glob|ask_followup_question|ask_user_question|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/homebrew/Cellar/node/25.2.1/bin/node' '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/stop-hook-dispatcher.cjs' --ide 'codebuddy' --runtime-path '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/runtime/telemetry.cjs' --cwd '/Users/jiayichen/Documents/GitHub/phier' --guard-path '/Users/jiayichen/Documents/GitHub/phier/.codebuddy/skills/trtc/hooks/stop_require_apply_evidence.py' --notice-only"
+          }
+        ]
+      }
+    ]
+  }
+}
