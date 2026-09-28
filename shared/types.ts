@@ -49,9 +49,9 @@ export interface Memory extends MemoryInput {
   lastUsedAt: string | null;
 }
 export const ReplySchema = z.object({
-  responseText: z.string().min(1).max(180),
-  pronunciation: z.string().min(1).max(600),
-  meaning: z.string().min(1).max(500),
+  responseText: z.string().trim().min(1).max(100),
+  pronunciation: z.string().trim().min(1).max(600),
+  meaning: z.string().trim().min(1).max(500),
   memoryIdsUsed: z.array(z.string()).max(8),
 });
 export type Reply = z.infer<typeof ReplySchema> & {
@@ -120,6 +120,13 @@ export const TurnSchema = z.object({
   text: z.string().trim().min(1).max(2000),
   speaker: z.enum(['partner', 'user']),
   demo: z.boolean().default(false),
+  // Final translation from the active speech provider, not a partial subtitle.
+  translated: z
+    .object({
+      text: z.string().trim().min(1).max(2000),
+      language: z.enum(['en', 'zh', 'es', 'fr', 'de']),
+    })
+    .optional(),
   recent: z
     .array(z.object({ speaker: z.enum(['partner', 'user']), text: z.string().max(2000) }))
     .max(4)

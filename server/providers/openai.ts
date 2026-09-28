@@ -64,6 +64,7 @@ export class OpenAIProvider implements LanguageProvider {
         const value = await this.structured(
           ReplySchema,
           instructions +
+            '\nThe incoming text is a finalized utterance. Respond directly to its actual question or request; do not merely translate or repeat it. Use source speech as the authority if a supplied translation disagrees. If the speech remains incomplete or unclear, ask for clarification instead of filling in missing facts.' +
             (attempt
               ? '\nPrevious output failed validation. Carefully obey the length and pronunciation restrictions.'
               : ''),

@@ -43,6 +43,7 @@ import {
   type Speaker,
   type TranslationText,
   type TurnResult,
+  type TurnInput,
 } from '../shared/types';
 import { api } from './lib/api';
 import { Microphone, type Callbacks } from './lib/audio';
@@ -88,6 +89,8 @@ export default function App() {
   const [subtitle, setSubtitle] = useState('');
   const [provisional, setProvisional] = useState(false);
   const [result, setResult] = useState<TurnResult | null>(null);
+  const [replyError, setReplyError] = useState('');
+  const [lastTurn, setLastTurn] = useState<TurnInput | null>(null);
   const [demo, setDemo] = useState(false);
   const [demoRunning, setDemoRunning] = useState(false);
   const [error, setError] = useState('');
@@ -106,6 +109,7 @@ export default function App() {
   const epoch = useRef(0);
   const running = useRef(false);
   const turnController = useRef<AbortController | null>(null);
+  const turnVersion = useRef(0);
   const partialController = useRef<AbortController | null>(null);
   const partialTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const partialLatest = useRef('');
@@ -116,7 +120,6 @@ export default function App() {
   const firstSubtitle = useRef(false);
   const recent = useRef<{ speaker: Speaker; text: string }[]>([]);
   const seenItems = useRef(new Set<string>());
-  const trtcMode = useRef(false);
   const saveQueue = useRef(Promise.resolve());
   const demoTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mounted = useRef(true);
@@ -199,6 +202,9 @@ export default function App() {
     mic.current?.stop();
     mic.current = null;
     turnController.current?.abort();
+    turnVersion.current++;
+    setReplyError('');
+    setLastTurn(null);
     cancelPartial();
     demoTimers.current.forEach(clearTimeout);
     demoTimers.current = [];
@@ -223,8 +229,16 @@ export default function App() {
   useEffect(() => {
     if (view !== 'conversation' && (live || demoRunning)) stop();
   }, [view, live, demoRunning]);
-  async function runTurn(text: string, role: Speaker, isDemo = false) {
-    if (running.current || !text.trim()) return;
+  async function runTurn(
+    text: string,
+    role: Speaker,
+    isDemo = false,
+    translated?: TurnInput['translated'],
+    retryId?: string,
+  ) {
+    if (!text.trim()) return;
+    turnController.current?.abort();
+    const version = ++turnVersion.current;
     running.current = true;
     const generation = epoch.current;
     cancelPartial();
@@ -232,18 +246,26 @@ export default function App() {
     setStatus('processing');
     setError('');
     setResult(null);
+    setReplyError('');
+    const input: TurnInput = {
+      id: retryId || crypto.randomUUID(),
+      text,
+      speaker: role,
+      demo: isDemo,
+      recent: recent.current,
+      translated,
+    };
+    setLastTurn(input);
+    setRecognizedSpeech(text);
+    if (translated) setSubtitle(translated.text);
     const controller = new AbortController();
     turnController.current = controller;
     const started = silenceAt.current || performance.now();
     try {
       await saveQueue.current;
-      const response = await api<TurnResult>(
-        '/turn',
-        { id: crypto.randomUUID(), text, speaker: role, demo: isDemo, recent: recent.current },
-        'POST',
-        controller.signal,
-      );
-      if (generation !== epoch.current) return;
+      controller.signal.throwIfAborted();
+      const response = await api<TurnResult>('/turn', input, 'POST', controller.signal);
+      if (generation !== epoch.current || version !== turnVersion.current) return;
       setSubtitle(response.translation);
       setResult(response);
       setCorrectedText(response.transcript);
@@ -252,7 +274,6 @@ export default function App() {
       setMemoryDetails(false);
       recent.current = [...recent.current, { speaker: role, text }].slice(-4);
       if (mic.current) {
-        setActiveSpeaker(role === 'partner' ? 'user' : 'partner');
         mic.current.resume();
       } else if (!response.reply) setStatus('idle');
       if (role === 'user')
@@ -262,23 +283,20 @@ export default function App() {
             : 'Your words were received. Automatic memory learning is off.',
         );
     } catch (error) {
-      if (controller.signal.aborted || generation !== epoch.current) return;
+      if (
+        controller.signal.aborted ||
+        generation !== epoch.current ||
+        version !== turnVersion.current
+      )
+        return;
       const message = (error as Error).message;
-      // With TRTC the transcript and its translation are already on screen. A missing
-      // reply must not end the session the way it does on the speech-session path.
-      if (trtcMode.current && mic.current) {
-        notify(`Translation shown. Reply unavailable: ${message}`);
-        setStatus('listening');
-        mic.current.resume();
-      } else {
-        setError(message);
-        setStatus('error');
-        mic.current?.stop();
-        mic.current = null;
-        setLive(false);
-      }
+      if (role === 'partner') setReplyError(message);
+      else setError(message);
+      // Reply failures must not take down a healthy speech stream or erase captions.
+      setStatus(mic.current ? 'listening' : 'error');
+      mic.current?.resume();
     } finally {
-      if (generation === epoch.current) {
+      if (generation === epoch.current && version === turnVersion.current) {
         running.current = false;
         setDemoRunning(false);
       }
@@ -352,13 +370,18 @@ export default function App() {
     setActiveSpeaker('partner');
     const generation = epoch.current;
     const settings = dataRef.current.settings;
-    trtcMode.current = Boolean(dataRef.current.trtc?.configured);
     const callbacks: Callbacks = {
       onReady: () => {
         if (generation === epoch.current) setStatus('listening');
       },
       onSpeech: () => {
         if (generation !== epoch.current) return;
+        turnVersion.current++;
+        turnController.current?.abort();
+        running.current = false;
+        cancelPartial();
+        setReplyError('');
+        setLastTurn(null);
         turnSpeaker.current = speakerRef.current;
         speechStarted.current = performance.now();
         firstSubtitle.current = false;
@@ -397,7 +420,7 @@ export default function App() {
         }
         queuePartial(text);
       },
-      onFinal: (id, text) => {
+      onFinal: (id, text, translations) => {
         if (generation !== epoch.current || seenItems.current.has(id)) return;
         seenItems.current.add(id);
         setRecognizedSpeech(text);
@@ -407,7 +430,14 @@ export default function App() {
           notify('No clear speech detected. Please try again.');
           return;
         }
-        void runTurn(text, turnSpeaker.current);
+        const language = dataRef.current?.settings.explanationLanguage ?? 'en';
+        const translated = pickTranslation(translations, language);
+        void runTurn(
+          text,
+          turnSpeaker.current,
+          false,
+          translated ? { text: translated, language } : undefined,
+        );
       },
       onError: (message) => {
         if (generation !== epoch.current) return;
@@ -582,52 +612,50 @@ export default function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <span className="breadcrumb">
-            Your space <ChevronRight size={15} />{' '}
-            <span>
-              {view === 'conversation'
-                ? 'Conversation'
-                : view === 'memory'
-                  ? 'Memory'
-                  : view === 'profile'
-                    ? 'Profile'
-                    : 'Preferences'}
+          {view === 'conversation' ? (
+            <div className="topbar-heading">
+              <p className="eyebrow">LESS TRANSLATING. MORE CONNECTING.</p>
+              <h1>Be part of the conversation.</h1>
+            </div>
+          ) : (
+            <span className="breadcrumb">
+              Your space <ChevronRight size={15} />{' '}
+              <span>
+                {view === 'memory' ? 'Memory' : view === 'profile' ? 'Profile' : 'Preferences'}
+              </span>
             </span>
-          </span>
-          <button
-            className={`connection-status ${data.liveAvailable ? 'configured' : ''}`}
-            onClick={() => setView('settings')}
-          >
-            <span />
-            {data.provider === 'mock'
-              ? 'Development fixtures'
-              : data.liveAvailable
-                ? 'Live verified'
-                : data.connection.configured
-                  ? 'Check connection'
-                  : 'API key needed'}
-            <ArrowUpRight size={14} />
-          </button>
+          )}
+          <div className="topbar-actions">
+            {view === 'conversation' && (
+              <div className="language-route">
+                <span className="japan-flag" />
+                <span>Japanese</span>
+                <ArrowRight size={16} />
+                <button onClick={() => setView('settings')}>
+                  {languages[settings.explanationLanguage]}
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+            <button
+              className={`connection-status ${data.liveAvailable ? 'configured' : ''}`}
+              onClick={() => setView('settings')}
+            >
+              <span />
+              {data.provider === 'mock'
+                ? 'Development fixtures'
+                : data.liveAvailable
+                  ? 'Live verified'
+                  : data.connection.configured
+                    ? 'Check connection'
+                    : 'API key needed'}
+              <ArrowUpRight size={14} />
+            </button>
+          </div>
         </header>
         <main>
           {view === 'conversation' && (
             <section className="conversation-page">
-              <div className="page-heading">
-                <div>
-                  <p className="eyebrow">LESS TRANSLATING. MORE CONNECTING.</p>
-                  <h1>Be part of the conversation.</h1>
-                  <p>Understand their words. Find yours.</p>
-                </div>
-                <div className="language-route">
-                  <span className="japan-flag" />
-                  <span>Japanese</span>
-                  <ArrowRight size={16} />
-                  <button onClick={() => setView('settings')}>
-                    {languages[settings.explanationLanguage]}
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-              </div>
               {!live && (setupOpen || (!data.liveAvailable && !data.demoEnabled)) && (
                 <div id="listening-setup">
                   <ConnectionPanel data={data} refresh={bootstrap} />
@@ -771,7 +799,32 @@ export default function App() {
                       </div>
                     </div>
                     <div className="reply-content" aria-live="polite">
-                      {result?.reply ? (
+                      {replyError && lastTurn?.speaker === 'partner' ? (
+                        <div className="reply-failure">
+                          <p className="reply-empty">Could not generate your reply.</p>
+                          <p className="error-text" role="alert">
+                            {replyError}
+                          </p>
+                          <button
+                            className="secondary-button"
+                            onClick={() =>
+                              void runTurn(
+                                lastTurn.text,
+                                lastTurn.speaker,
+                                lastTurn.demo,
+                                lastTurn.translated,
+                                lastTurn.id,
+                              )
+                            }
+                          >
+                            Retry reply
+                          </button>
+                          <p className="reply-hint">
+                            Your captured words stay in this session for retry, not in saved
+                            conversation history. No sample response is substituted.
+                          </p>
+                        </div>
+                      ) : result?.reply ? (
                         <>
                           <p
                             className={`pronunciation ${result.reply.pronunciationMode === 'ipa' ? 'ipa' : ''}`}
@@ -787,11 +840,14 @@ export default function App() {
                         <>
                           <p className="reply-empty">
                             {status === 'processing'
-                              ? 'Finding a natural way to say it…'
-                              : 'Your reply will appear here.'}
+                              ? lastTurn?.speaker === 'partner'
+                                ? 'Generating your suggested reply…'
+                                : 'Waiting for the final transcript…'
+                              : 'Waiting for a complete question.'}
                           </p>
                           <p className="reply-hint">
-                            A short response, with pronunciation and meaning.
+                            After they finish speaking, one short reply appears here in kana with
+                            its meaning. Partial subtitles do not trigger replies.
                           </p>
                         </>
                       )}
@@ -886,7 +942,7 @@ export default function App() {
                   <p className="turn-hint">
                     {speaker === 'user'
                       ? 'Your words can teach phier about you. No reply is generated during your turn.'
-                      : 'Only speech marked “My turn” can become a personal memory.'}
+                      : 'Keep “Their turn” selected for their questions. Choose “My turn” when you speak; only your words can become a personal memory.'}
                   </p>
                   {data.demoEnabled && (
                     <div className="sample-section">

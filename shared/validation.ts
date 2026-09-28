@@ -10,8 +10,14 @@ export function validateReply(
   const reply = ReplySchema.parse(value);
   const sentences = reply.responseText.split(/[。！？!?]+/u).filter((s) => s.trim());
   if (sentences.length > 2) throw new Error('A reply must be at most two short sentences.');
-  if (mode === 'kana' && !kanaPattern.test(reply.pronunciation))
+  if (
+    mode === 'kana' &&
+    (!kanaPattern.test(reply.pronunciation) ||
+      !/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(reply.pronunciation))
+  )
     throw new Error('Pronunciation must contain kana only.');
+  if (mode === 'kana' && reply.pronunciation.split(/[。！？]+/u).filter((s) => s.trim()).length > 2)
+    throw new Error('A reply must be at most two short sentences.');
   if (
     mode === 'ipa' &&
     (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(reply.pronunciation) ||

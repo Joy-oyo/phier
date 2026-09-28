@@ -3,6 +3,7 @@ import type { LanguageProvider } from './providers/types';
 import { retrieveMemories, Store } from './store';
 import type { TurnInput, TurnResult } from '../shared/types';
 import { ProviderError } from './providers/errors';
+import { validateReply } from '../shared/validation';
 
 export class ConversationService {
   private turns = new Map<
@@ -36,7 +37,10 @@ export class ConversationService {
     const started = performance.now();
     const settings = this.store.settings();
     const provider = input.demo ? new MockProvider() : this.provider;
-    const translation = await provider.translate(input.text, settings.explanationLanguage, signal);
+    const translation =
+      input.translated?.language === settings.explanationLanguage
+        ? input.translated.text
+        : await provider.translate(input.text, settings.explanationLanguage, signal);
     const translated = performance.now();
     let reply = null;
     if (input.speaker === 'partner') {
@@ -45,13 +49,20 @@ export class ConversationService {
         settings.context,
         `${input.text} ${translation}`,
       );
-      reply = await provider.generate(
+      const generated = await provider.generate(
         { text: input.text, translation, settings, memories, recent: input.recent },
         signal,
+      );
+      signal?.throwIfAborted();
+      reply = validateReply(
+        generated,
+        settings.pronunciationMode,
+        memories.map((memory) => memory.id),
       );
       this.store.markUsed(reply.memoryIdsUsed);
     }
     const finished = performance.now();
+    signal?.throwIfAborted();
     const metrics = {
       translationMs: Math.round(translated - started),
       generationMs: Math.round(finished - translated),

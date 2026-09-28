@@ -35,7 +35,9 @@ Your account needs API billing/quota and access to the selected models. Credenti
 
 The microphone captures 24 kHz mono PCM, local voice detection finds a pause, and the backend relays audio to a transcription session. Transcript fragments are translated into provisional subtitles; a finalized turn generates a short Japanese reply. No synthesized speech is played.
 
-**Speaker attribution:** “Their turn” generates a reply. “My turn” learns personal facts from your actual words and does not generate a response. The UI alternates after successful turns; change the control if someone interrupts or speaks out of order. This version does not recognize voices. Verify the speaker control before sharing personal information; ambiguous partner audio must not be labeled as yours.
+**Speaker attribution:** “Their turn” generates a reply. “My turn” learns personal facts from your actual words and does not generate a response. The selected speaker stays unchanged until you explicitly switch it. This version does not recognize voices. Verify the speaker control before sharing personal information; ambiguous partner audio must not be labeled as yours.
+
+**Suggested responses:** Only finalized speech triggers generation; provisional captions never trigger a reply. The model answers the actual utterance using relevant preferences and the selected tone, with one short sentence (two at most). Kana is the default and is validated to exclude kanji and romaji; IPA remains opt-in. Final speech-service translations are reused when their language matches your settings. Duplicate final events do not create extra requests, and a newer utterance supersedes an unfinished reply. Generation failures show a Retry reply button without stopping an otherwise healthy speech stream; no sample answer is substituted.
 
 Leaving the conversation screen ends an active listening/sample session and releases the microphone. Context and tone can be changed in place during a conversation.
 

@@ -7,7 +7,7 @@ export default defineConfig({
     { name: 'fixtures', testMatch: 'flow.spec.ts' },
     {
       name: 'live-setup',
-      testMatch: ['live-setup.spec.ts', 'microphone-setup.spec.ts'],
+      testMatch: ['live-setup.spec.ts', 'microphone-setup.spec.ts', 'response.spec.ts'],
       use: { baseURL: 'http://localhost:5175' },
     },
   ],

@@ -366,10 +366,11 @@ test('complete setup to partial subtitles, silence commit, kana reply, next turn
   });
   await expect(page.locator('.pronunciation')).toHaveText('テニスがすきです。');
   await expect(page.locator('.reply-meaning')).toHaveText('I enjoy tennis.');
-  await expect(page.getByRole('button', { name: 'My turn', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'Their turn', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
+  await page.getByRole('button', { name: 'My turn', exact: true }).click();
   await page.evaluate(() => {
     (window as any).micGain.gain.value = 1;
   });

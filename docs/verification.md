@@ -2,7 +2,9 @@
 
 Run `npm test`, `npm run test:e2e` and `npm run build` from the project root.
 
-Latest verification (2026-09-25): 25 unit tests, 18 Chrome browser tests, strict TypeScript checking, and the production build passed. Audio tests use synthetic inputs; no physical microphone or paid cloud requests were used in this run. The microphone test is a compact expandable card above Set the scene in the context panel. Tests verify placement, initial focus, focus restoration, fresh state on reopening, and microphone release for close-button, Escape and toggle collapse.
+Latest verification (2026-09-25): 30 unit tests, 21 Chrome browser tests, strict TypeScript checking, and the production build passed. Automated audio tests use synthetic inputs and intercepted cloud events, not a physical microphone. The microphone test is a compact expandable card above Set the scene in the context panel. Tests verify placement, initial focus, focus restoration, fresh state on reopening, and microphone release for close-button, Escape and toggle collapse.
+
+Response handoff tests verify that partial captions never generate replies, finalized utterances generate once, duplicate finals are ignored, the speaker stays manually selected, and a newer question supersedes a slow reply. Retry uses the captured utterance and request ID while preserving a healthy audio stream. Unit tests additionally check final translation reuse, wrong-language fallback translation, service-boundary kana validation, and cancellation. A separate real-model request with a generic Japanese question and no personal memories was attempted on 2026-09-25; the configured account returned exhausted API credits. Successful live kana generation remains unverified until billing is funded.
 
 2026-09-25 microphone hardening: the local check now shares the live AudioWorklet capture code rather than using a separate analyser. It validates secure context, embedding policy, active audio tracks and worklet support; requests audio only; starts Web Audio from the button gesture; and releases capture on pagehide, cancellation, permission failure, device disconnection or processing failure. The local counter reports actual PCM frames captured without opening a speech WebSocket. Unit tests validate 480-sample PCM16 frame sizing, conversion and silence levels. Browser checks additionally cover missing/busy devices and blocked embedding policy. Physical microphone and live cloud translation still require manual acceptance testing.
 
@@ -26,7 +28,7 @@ Cloud integration is implemented against the documented interfaces, but live API
 2. Configure `.env`, fund API billing, and click Check connection. Then Start live conversation. Confirm the recording indicator is active only during the local test or live session.
 3. With “Their turn” selected, speak a Japanese question. Confirm provisional meaning appears while speaking and one short reply appears after a pause.
 4. Confirm kana contains no kanji and its English meaning matches. Test IPA separately with a qualified speaker.
-5. After the reply, verify the turn changes to “My turn.” State a personal preference, then inspect memory after the background operation finishes.
+5. After the reply, verify “Their turn” remains selected. Explicitly select “My turn,” state a personal preference, then inspect memory after the background operation finishes.
 6. Interrupt or switch speakers, use the explicit turn control, and verify attribution stays correct.
 7. End the session. Confirm microphone tracks stop and conversation text clears.
 8. Repeat under realistic noise and network conditions; collect p50/p95 first-subtitle and silence-to-reply timings.
