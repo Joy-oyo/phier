@@ -11,7 +11,9 @@ import {
   type PronunciationMode,
 } from '../../shared/types';
 import { OpenAIProvider } from './openai';
+import { GroqProvider } from './groq';
 import { OpenAIAsrProvider } from './asr';
+import { LocalAsrProvider, LocalLanguageProvider } from './local';
 import { MockProvider } from './mock';
 import { ProviderError, safeProviderError } from './errors';
 import { readTrtcConfig } from '../trtc';
@@ -19,7 +21,10 @@ import type { AsrProvider, AsrConnection, LanguageProvider, GenerationInput } fr
 
 export interface RuntimeConfig {
   key?: string;
-  mode: 'openai' | 'mock';
+  openAIKey?: string;
+  mode: 'groq' | 'openai' | 'mock' | 'local';
+  localUrl?: string;
+  whisperUrl?: string;
   demoEnabled: boolean;
   textModel: string;
   memoryModel: string;
@@ -39,15 +44,37 @@ export function readRuntimeConfig(): RuntimeConfig {
   const env = readLocalEnvironment();
   // Fixtures require an explicit opt-in. Old PHIER_PROVIDER=mock settings alone cannot select them.
   const demoEnabled = env.PHIER_ENABLE_DEMO === 'true';
-  const key = env.OPENAI_API_KEY?.trim();
+  const validKey = (value?: string) => {
+    const key = value?.trim();
+    return key && !/^(your[-_]|replace|paste)/i.test(key) ? key : undefined;
+  };
+  const groqKey = validKey(env.GROQ_API_KEY);
+  const openAIKey = validKey(env.OPENAI_API_KEY);
+  const mode =
+    demoEnabled && env.PHIER_PROVIDER === 'mock'
+      ? 'mock'
+      : env.PHIER_PROVIDER === 'local'
+        ? 'local'
+        : groqKey
+          ? 'groq'
+          : 'openai';
   return {
-    key: key && !/^(your[-_]|replace|paste)/i.test(key) ? key : undefined,
-    mode: demoEnabled && env.PHIER_PROVIDER === 'mock' ? 'mock' : 'openai',
+    key: mode === 'groq' ? groqKey : openAIKey,
+    openAIKey,
+    localUrl: env.OLLAMA_URL || 'http://127.0.0.1:11434',
+    whisperUrl: env.WHISPER_URL || 'http://127.0.0.1:8081',
+    mode,
     demoEnabled,
-    textModel: env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini',
-    memoryModel: env.OPENAI_MEMORY_MODEL || 'gpt-4.1-mini',
-    speechModel: env.OPENAI_TRANSCRIBE_MODEL || 'gpt-live-transcribe',
-    trtcConfigured: Boolean(readTrtcConfig(env)),
+    textModel:
+      mode === 'local'
+        ? env.OLLAMA_MODEL || 'qwen3:4b-instruct'
+        : mode === 'groq'
+          ? env.GROQ_TEXT_MODEL || 'qwen/qwen3.8-27b'
+          : env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini',
+    memoryModel: mode === 'groq' ? 'local-only' : env.OPENAI_MEMORY_MODEL || 'gpt-4.1-mini',
+    speechModel:
+      mode === 'local' ? 'Local Whisper' : env.OPENAI_TRANSCRIBE_MODEL || 'gpt-live-transcribe',
+    trtcConfigured: mode !== 'local' && Boolean(readTrtcConfig(env)),
   };
 }
 const unchecked = (): ServiceCheck => ({
@@ -55,7 +82,7 @@ const unchecked = (): ServiceCheck => ({
   message: 'Not checked yet',
   latencyMs: null,
 });
-type Factory = (config: RuntimeConfig) => { language: LanguageProvider; speech: AsrProvider };
+type Factory = (config: RuntimeConfig) => { language: LanguageProvider; speech?: AsrProvider };
 
 export class ProviderRuntime implements LanguageProvider {
   private config!: RuntimeConfig;
@@ -67,8 +94,18 @@ export class ProviderRuntime implements LanguageProvider {
   constructor(
     private load = readRuntimeConfig,
     private factory: Factory = (c) => ({
-      language: new OpenAIProvider(c.key!, c.textModel, c.memoryModel),
-      speech: new OpenAIAsrProvider(c.key!, c.speechModel),
+      language:
+        c.mode === 'local'
+          ? new LocalLanguageProvider(c.localUrl, c.textModel)
+          : c.mode === 'groq'
+            ? new GroqProvider(c.key!, c.textModel)
+            : new OpenAIProvider(c.key!, c.textModel, c.memoryModel),
+      speech:
+        c.mode === 'local'
+          ? new LocalAsrProvider(c.whisperUrl, 'ja')
+          : c.openAIKey
+            ? new OpenAIAsrProvider(c.openAIKey, c.speechModel)
+            : undefined,
     }),
   ) {
     this.reload();
@@ -79,14 +116,20 @@ export class ProviderRuntime implements LanguageProvider {
     if (fingerprint === this.fingerprint) return;
     this.fingerprint = fingerprint;
     this.config = config;
-    const providers = config.key ? this.factory(config) : null;
+    const providers = config.key || config.mode === 'local' ? this.factory(config) : null;
     this.language = config.mode === 'mock' ? new MockProvider() : providers?.language || null;
-    this.speech = config.mode === 'openai' ? providers?.speech || null : null;
+    this.speech = config.mode !== 'mock' ? providers?.speech || null : null;
     this.status = {
-      configured: !!config.key,
+      configured: !!config.key || config.mode === 'local',
       provider: config.mode,
       checkedAt: null,
-      models: { text: config.textModel, memory: config.memoryModel, speech: config.speechModel },
+      models: {
+        text: config.textModel,
+        memory: ['groq', 'local'].includes(config.mode)
+          ? 'Local only (auto-learn paused)'
+          : config.memoryModel,
+        speech: config.trtcConfigured ? 'TRTC real-time translation' : config.speechModel,
+      },
       text: unchecked(),
       memory: unchecked(),
       speech: unchecked(),
@@ -102,10 +145,9 @@ export class ProviderRuntime implements LanguageProvider {
     return this.config.demoEnabled;
   }
   get liveAvailable() {
-    if (this.mode !== 'openai') return false;
-    // TRTC carries transcription and translation on its own, so a TRTC session does not
-    // depend on the OpenAI speech check. Replies still need the text and memory models.
-    if (this.config.trtcConfigured) return true;
+    if (this.mode === 'mock' || !this.language) return false;
+    if (this.config.trtcConfigured)
+      return this.status.text.status === 'ready' && this.status.memory.status === 'ready';
     return (
       this.status.text.status === 'ready' &&
       this.status.memory.status === 'ready' &&
@@ -114,7 +156,7 @@ export class ProviderRuntime implements LanguageProvider {
   }
   get configurationError() {
     return !this.language
-      ? 'Add your OpenAI API key to .env, then choose Check connection in Preferences.'
+      ? 'Add an API key as GROQ_API_KEY (recommended) or OPENAI_API_KEY in .env, then choose Check connection in Preferences.'
       : null;
   }
   private requireLanguage() {
@@ -166,11 +208,14 @@ export class ProviderRuntime implements LanguageProvider {
   check(): Promise<ConnectionStatus> {
     if (this.checking) return this.checking;
     this.reload();
-    if (this.mode === 'mock' || !this.language || !this.speech)
-      return Promise.resolve(this.snapshot());
+    if (this.mode === 'mock' || !this.language) return Promise.resolve(this.snapshot());
     const language = this.language,
       speech = this.speech;
-    const run = async (name: 'text' | 'memory' | 'speech', operation: () => Promise<unknown>) => {
+    const run = async (
+      name: 'text' | 'memory' | 'speech',
+      operation: () => Promise<unknown>,
+      readyMessage?: string,
+    ) => {
       this.status[name] = {
         status: 'checking',
         message: 'Checking provider access…',
@@ -182,9 +227,10 @@ export class ProviderRuntime implements LanguageProvider {
         this.status[name] = {
           status: 'ready',
           message:
-            name === 'speech'
+            readyMessage ||
+            (name === 'speech'
               ? 'Transcription session accepted; microphone audio has not been tested.'
-              : 'Live model request succeeded.',
+              : 'Live model request succeeded.'),
           latencyMs: Math.round(performance.now() - started),
         };
       } catch (error) {
@@ -195,6 +241,47 @@ export class ProviderRuntime implements LanguageProvider {
         };
       }
     };
+    const speechCheck = this.config.trtcConfigured
+      ? run('speech', async () => {}, 'TRTC is configured for transcription and live translation.')
+      : speech
+        ? run(
+            'speech',
+            () =>
+              new Promise<void>((resolve, reject) => {
+                let connection: AsrConnection | undefined;
+                let done = false;
+                const finish = (error?: unknown) => {
+                  if (done) return;
+                  done = true;
+                  clearTimeout(timer);
+                  connection?.close();
+                  error ? reject(error) : resolve();
+                };
+                const timer = setTimeout(
+                  () =>
+                    finish(
+                      new ProviderError(
+                        'Speech connection timed out. Check network access and model permissions.',
+                        504,
+                        'timeout',
+                      ),
+                    ),
+                  16_000,
+                );
+                connection = speech.connect((event) => {
+                  if (event.type === 'ready') finish();
+                  if (event.type === 'error') finish(new ProviderError(event.message));
+                });
+                if (done) connection.close();
+              }),
+          )
+        : run('speech', async () => {
+            throw new ProviderError(
+              'Add OPENAI_API_KEY for streaming speech, or configure TRTC for transcription and translation.',
+              503,
+              'missing_speech_provider',
+            );
+          });
     this.checking = Promise.all([
       run('text', async () => {
         const text = 'こんにちは。';
@@ -207,38 +294,14 @@ export class ProviderRuntime implements LanguageProvider {
           recent: [],
         });
       }),
-      run('memory', () => language.extract('I enjoy reading books.', defaultSettings)),
       run(
-        'speech',
-        () =>
-          new Promise<void>((resolve, reject) => {
-            let connection: AsrConnection | undefined;
-            let done = false;
-            const finish = (error?: unknown) => {
-              if (done) return;
-              done = true;
-              clearTimeout(timer);
-              connection?.close();
-              error ? reject(error) : resolve();
-            };
-            const timer = setTimeout(
-              () =>
-                finish(
-                  new ProviderError(
-                    'Speech connection timed out. Check network access and model permissions.',
-                    504,
-                    'timeout',
-                  ),
-                ),
-              16_000,
-            );
-            connection = speech.connect((event) => {
-              if (event.type === 'ready') finish();
-              if (event.type === 'error') finish(new ProviderError(event.message));
-            });
-            if (done) connection.close();
-          }),
+        'memory',
+        () => language.extract('I enjoy reading books.', defaultSettings),
+        ['groq', 'local'].includes(this.mode)
+          ? 'Saved memories stay local; automatic learning is paused for this provider.'
+          : undefined,
       ),
+      speechCheck,
     ])
       .then(() => {
         this.status.checkedAt = new Date().toISOString();

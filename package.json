@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch server/index.ts",
+    "dev:local": "node scripts/start-local.mjs",
     "build": "tsc --noEmit && vite build && esbuild server/index.ts --bundle --platform=node --packages=external --format=esm --outfile=build/server.mjs",
     "start": "node build/server.mjs",
     "typecheck": "tsc --noEmit",

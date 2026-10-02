@@ -41,7 +41,7 @@ export class Microphone {
   constructor(
     settings: Settings,
     private events: Callbacks,
-    private options: { localOnly?: boolean } = {},
+    private options: { localOnly?: boolean; audioPath?: string } = {},
   ) {
     this.vad = new VoiceDetector(settings.silenceMs, settings.vadThreshold);
   }
@@ -131,7 +131,7 @@ export class Microphone {
         return;
       }
       this.socket = new WebSocket(
-        `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/audio`,
+        `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${this.options.audioPath || '/api/audio'}`,
       );
       this.connectionTimer = setTimeout(
         () =>

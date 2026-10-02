@@ -46,6 +46,39 @@ function response(body: any, pronunciation = 'テニスが すきです。') {
   };
 }
 
+test('format conversion hides the old script and restores selection on failure', async ({
+  page,
+}) => {
+  await page.route('**/api/turn', (route) =>
+    route.fulfill({ json: response(route.request().postDataJSON()) }),
+  );
+  let fail = false;
+  await page.route('**/api/pronounce', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (fail) return route.fulfill({ status: 502, json: { error: 'Conversion failed' } });
+    const { mode } = route.request().postDataJSON();
+    await route.fulfill({
+      json: { pronunciation: mode === 'ipa' ? '/tenisɯ ɡa sɯki desɯ/' : 'テニスが すきです。' },
+    });
+  });
+  const send = await listen(page);
+  send({ type: 'final', itemId: 'format-question', text: 'すきなスポーツは？' });
+  await expect(page.locator('.pronunciation')).toHaveText('テニスが すきです。');
+  await page.getByRole('button', { name: 'IPA', exact: true }).click();
+  await expect(page.getByText('Converting pronunciation…')).toBeVisible();
+  await expect(page.locator('.pronunciation')).toHaveText('/tenisɯ ɡa sɯki desɯ/');
+  fail = true;
+  await page.getByRole('button', { name: 'かな', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'IPA', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('.pronunciation')).toHaveText('/tenisɯ ɡa sɯki desɯ/');
+  fail = false;
+  await page.getByRole('button', { name: 'かな', exact: true }).click();
+  await expect(page.locator('.pronunciation')).toHaveText('テニスが すきです。');
+});
+
 test('only a finalized question generates one kana reply; repeated final events do not duplicate it', async ({
   page,
 }) => {

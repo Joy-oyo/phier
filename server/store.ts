@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
+import type { KnowledgeEntry } from '../shared/knowledge';
 import {
   defaultSettings,
   SettingsSchema,
@@ -32,7 +33,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, body TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE);
       CREATE TABLE IF NOT EXISTS forgotten (fingerprint TEXT PRIMARY KEY);
-      CREATE TABLE IF NOT EXISTS metrics (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, body TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS metrics (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS knowledge (owner TEXT NOT NULL, id TEXT NOT NULL, session_id TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(owner, id));
+      CREATE INDEX IF NOT EXISTS knowledge_owner_date ON knowledge(owner, created_at DESC);`);
     this.db
       .prepare('INSERT OR IGNORE INTO settings VALUES(1, ?)')
       .run(JSON.stringify(defaultSettings));
@@ -149,6 +152,35 @@ export class Store {
         body: string;
       }[]
     ).map((row) => JSON.parse(row.body));
+  }
+  knowledge(owner: string, sessionId?: string, limit = 100, offset = 0): KnowledgeEntry[] {
+    const rows = sessionId
+      ? this.db
+          .prepare(
+            'SELECT body FROM knowledge WHERE owner=? AND session_id=? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?',
+          )
+          .all(owner, sessionId, limit, offset)
+      : this.db
+          .prepare(
+            'SELECT body FROM knowledge WHERE owner=? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?',
+          )
+          .all(owner, limit, offset);
+    return (rows as { body: string }[]).map((row) => JSON.parse(row.body));
+  }
+  knowledgeEntry(owner: string, id: string): KnowledgeEntry | undefined {
+    const row = this.db
+      .prepare('SELECT body FROM knowledge WHERE owner=? AND id=?')
+      .get(owner, id) as { body: string } | undefined;
+    return row ? JSON.parse(row.body) : undefined;
+  }
+  saveKnowledge(owner: string, entry: KnowledgeEntry) {
+    this.db
+      .prepare('INSERT OR IGNORE INTO knowledge VALUES(?,?,?,?,?)')
+      .run(owner, entry.id, entry.sessionId, entry.createdAt, JSON.stringify(entry));
+    return this.knowledgeEntry(owner, entry.id)!;
+  }
+  deleteKnowledge(owner: string, id: string) {
+    this.db.prepare('DELETE FROM knowledge WHERE owner=? AND id=?').run(owner, id);
   }
   close() {
     this.pendingSensitive.clear();

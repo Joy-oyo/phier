@@ -8,11 +8,18 @@ import { MockProvider } from './providers/mock';
 import { ProviderRuntime } from './providers/runtime';
 import { ProviderError } from './providers/errors';
 import { createTrtcCredentials, trtcTargetLanguages, type TrtcConfig } from './trtc';
+import { knowledgeRoutes } from './knowledge-routes';
+import type { KnowledgeProvider } from './knowledge-provider';
 
 export function createApp(
   store: Store,
   provider: LanguageProvider,
-  config: { runtime: ProviderRuntime; port: number; trtc: TrtcConfig | null },
+  config: {
+    runtime: ProviderRuntime;
+    port: number;
+    trtc: TrtcConfig | null;
+    knowledge?: KnowledgeProvider;
+  },
 ) {
   const app = express();
   const service = new ConversationService(store, provider, () => config.runtime.demoEnabled);
@@ -38,6 +45,7 @@ export function createApp(
   });
   app.use(express.json({ limit: '32kb' }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  app.use('/api/knowledge', knowledgeRoutes(store, config.knowledge));
   app.get('/api/bootstrap', (_req, res) =>
     res.json({
       settings: store.settings(),
@@ -48,7 +56,7 @@ export function createApp(
       demoEnabled: config.runtime.demoEnabled,
       connection: config.runtime.snapshot(),
       trtc: {
-        configured: Boolean(config.trtc),
+        configured: config.runtime.mode !== 'local' && Boolean(config.trtc),
         sourceLanguage: config.trtc?.sourceLanguage ?? 'ja',
         targetLanguage: config.trtc?.targetLanguage ?? 'en',
       },

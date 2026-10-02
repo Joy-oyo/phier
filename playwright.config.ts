@@ -1,4 +1,11 @@
 import { defineConfig } from '@playwright/test';
+// Keep local .env credentials out of all browser tests, including optional providers.
+const isolatedProviders = {
+  OPENAI_API_KEY: '',
+  GROQ_API_KEY: '',
+  TRTC_SDK_APP_ID: '',
+  TRTC_SDK_SECRET_KEY: '',
+};
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -7,7 +14,12 @@ export default defineConfig({
     { name: 'fixtures', testMatch: 'flow.spec.ts' },
     {
       name: 'live-setup',
-      testMatch: ['live-setup.spec.ts', 'microphone-setup.spec.ts', 'response.spec.ts'],
+      testMatch: [
+        'live-setup.spec.ts',
+        'microphone-setup.spec.ts',
+        'response.spec.ts',
+        'knowledge.spec.ts',
+      ],
       use: { baseURL: 'http://localhost:5175' },
     },
   ],
@@ -24,6 +36,7 @@ export default defineConfig({
       url: 'http://localhost:5174/api/health',
       reuseExistingServer: false,
       env: {
+        ...isolatedProviders,
         PORT: '5174',
         PHIER_DB_PATH: ':memory:',
         PHIER_PROVIDER: 'mock',
@@ -36,11 +49,11 @@ export default defineConfig({
       url: 'http://localhost:5175/api/health',
       reuseExistingServer: false,
       env: {
+        ...isolatedProviders,
         PORT: '5175',
         PHIER_DB_PATH: ':memory:',
         PHIER_PROVIDER: 'openai',
         PHIER_ENABLE_DEMO: 'false',
-        OPENAI_API_KEY: '',
       },
       timeout: 30_000,
     },

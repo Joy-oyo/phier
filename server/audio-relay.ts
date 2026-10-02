@@ -7,10 +7,11 @@ export function attachAudioRelay(
   asr: AsrProvider | null,
   allowedOrigins: Set<string>,
   canConnect: () => boolean = () => true,
+  path = '/api/audio',
 ) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   server.on('upgrade', (req, socket, head) => {
-    if (req.url?.split('?')[0] !== '/api/audio') return; // Leave Vite HMR alone.
+    if (req.url?.split('?')[0] !== path) return; // Leave other relays and Vite HMR alone.
     if (
       !asr ||
       !canConnect() ||

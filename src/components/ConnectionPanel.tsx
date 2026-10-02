@@ -15,7 +15,7 @@ export function ConnectionPanel({ data, refresh }: { data: Bootstrap; refresh():
       await refresh();
       if (!result.configured)
         setError(
-          'No API key found yet. Save OPENAI_API_KEY in the project’s .env file, then check again.',
+          'No API key found yet. Save GROQ_API_KEY in the project’s .env file, then check again.',
         );
     } catch (error) {
       setError((error as Error).message);
@@ -27,7 +27,7 @@ export function ConnectionPanel({ data, refresh }: { data: Bootstrap; refresh():
     <section className="settings-card connection-card live-setup" aria-label="Live provider setup">
       <div className="settings-title">
         <AudioLines size={22} />
-        <h2>2. Check cloud connection</h2>
+        <h2>2. Check {data.provider === 'local' ? 'local models' : 'cloud connection'}</h2>
         <span className="tag">
           {data.liveAvailable
             ? 'Verified'
@@ -38,36 +38,42 @@ export function ConnectionPanel({ data, refresh }: { data: Bootstrap; refresh():
       </div>
       <p>
         {data.liveAvailable
-          ? 'Text generation, memory extraction, and a speech session passed live checks. Start listening to test real microphone audio.'
-          : 'Connect one OpenAI API key to recognize real speech, translate it, and generate personal replies.'}
+          ? `${data.provider === 'local' ? 'Local' : data.provider === 'groq' ? 'Groq' : 'OpenAI'} response generation and the speech provider passed live checks.`
+          : data.provider === 'local'
+            ? 'Ollama generates replies and whisper.cpp recognizes speech on your Mac. No API credits are required. Transcripts appear after short pauses.'
+            : 'Connect a free Groq API key for replies. TRTC continues to handle Japanese speech and live translation.'}
       </p>
       {(['text', 'memory', 'speech'] as const).some(
         (name) => connection[name].status === 'error',
       ) && (
         <p className="error-text" role="alert">
-          Cloud connection needs attention. Your microphone can still be tested locally. If credits
-          are exhausted,{' '}
-          <a
-            href="https://platform.openai.com/settings/organization/billing/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            add API credits
-          </a>
-          , then check again.
+          {data.provider === 'local'
+            ? 'Local models need attention.'
+            : 'Cloud connection needs attention.'}{' '}
+          Your microphone can still be tested locally. Review the service message below, update that
+          provider, then check again.{' '}
+          {data.provider === 'openai' && (
+            <a
+              href="https://platform.openai.com/settings/organization/billing/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              add API credits
+            </a>
+          )}
         </p>
       )}
       {!connection.configured && (
         <ol className="setup-steps">
           <li>
-            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">
-              Create an API key <ArrowUpRight size={14} />
+            <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer">
+              Create a free Groq API key <ArrowUpRight size={14} />
             </a>{' '}
-            in your OpenAI project. Enable API billing if required.
+            in GroqCloud.
           </li>
           <li>
             Save the key in <code>phier/.env</code> on this computer. Keep it out of this chat and
-            out of browser code.<pre>OPENAI_API_KEY=your-secret-key</pre>
+            out of browser code.<pre>GROQ_API_KEY=your-secret-key</pre>
           </li>
           <li>
             Choose <strong>Check connection</strong>. Phier reloads the file without restarting.
@@ -96,7 +102,9 @@ export function ConnectionPanel({ data, refresh }: { data: Bootstrap; refresh():
                     ? 'Translation & replies'
                     : name === 'memory'
                       ? 'Personal memory'
-                      : 'Streaming speech'}
+                      : connection.provider === 'local'
+                        ? 'Speech after pauses'
+                        : 'Streaming speech'}
                 </strong>
                 <p>{checking ? 'Checking live service…' : state.message}</p>
                 <code>{connection.models[name]}</code>
@@ -113,8 +121,9 @@ export function ConnectionPanel({ data, refresh }: { data: Bootstrap; refresh():
         {checking ? 'Checking…' : 'Check connection'}
       </button>
       <p className="hint">
-        This makes small live API requests using built-in test phrases, with no personal memories or
-        microphone audio. API usage charges apply. Your secret key stays on the server.
+        {data.provider === 'local'
+          ? 'This checks local generation with a built-in phrase and connects to local speech recognition. No API charges, saved memories, or microphone audio are involved.'
+          : 'This makes small live API requests using built-in test phrases, with no saved personal memories or microphone audio. Free-tier limits or charges may apply. Your key stays on the server.'}
       </p>
       {connection.checkedAt && (
         <p className="hint">Last checked {new Date(connection.checkedAt).toLocaleString()}.</p>

@@ -14,13 +14,13 @@ export function safeProviderError(error: unknown): ProviderError {
   const e = error as { status?: number; code?: string; name?: string; type?: string };
   if (e?.code === 'credit_balance_exhausted')
     return new ProviderError(
-      'Your OpenAI API credits are exhausted. Add credits in API billing, then check again.',
+      'Your API provider credits are exhausted. Add credits in its billing settings, then check again.',
       429,
       'credit_balance_exhausted',
     );
   if (e?.status === 401 || ['invalid_api_key', 'invalid_authentication'].includes(e?.code || ''))
     return new ProviderError(
-      'The API key was rejected. Create or replace the key in .env, then check again.',
+      'The provider API key was rejected. Create or replace the key in .env, then check again.',
       401,
       'invalid_key',
     );

@@ -20,6 +20,7 @@ import {
   Copy,
   Heart,
   Languages,
+  Lightbulb,
   LoaderCircle,
   MessageCircle,
   Mic,
@@ -53,8 +54,9 @@ import { Onboarding } from './components/Onboarding';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ConnectionPanel } from './components/ConnectionPanel';
 import { MicrophoneTestWindow } from './components/MicrophoneTestWindow';
+import { KnowledgeWorkspace } from './components/KnowledgeWorkspace';
 
-type View = 'conversation' | 'memory' | 'profile' | 'settings';
+type View = 'conversation' | 'knowledge' | 'memory' | 'profile' | 'settings';
 type Status = 'idle' | 'connecting' | 'listening' | 'processing' | 'ready' | 'error';
 const contextIcons = { social: Coffee, professional: BriefcaseBusiness, dating: Heart };
 const contextDescriptions = {
@@ -90,6 +92,8 @@ export default function App() {
   const [provisional, setProvisional] = useState(false);
   const [result, setResult] = useState<TurnResult | null>(null);
   const [replyError, setReplyError] = useState('');
+  const [convertingPronunciation, setConvertingPronunciation] = useState(false);
+  const pronunciationVersion = useRef(0);
   const [lastTurn, setLastTurn] = useState<TurnInput | null>(null);
   const [demo, setDemo] = useState(false);
   const [demoRunning, setDemoRunning] = useState(false);
@@ -278,7 +282,8 @@ export default function App() {
       } else if (!response.reply) setStatus('idle');
       if (role === 'user')
         notify(
-          dataRef.current?.settings.autoLearn
+          dataRef.current?.settings.autoLearn &&
+            !['local', 'groq'].includes(dataRef.current?.provider || '')
             ? 'Your words were received. Relevant personal details will appear in Your memory.'
             : 'Your words were received. Automatic memory learning is off.',
         );
@@ -376,12 +381,7 @@ export default function App() {
       },
       onSpeech: () => {
         if (generation !== epoch.current) return;
-        turnVersion.current++;
-        turnController.current?.abort();
-        running.current = false;
         cancelPartial();
-        setReplyError('');
-        setLastTurn(null);
         turnSpeaker.current = speakerRef.current;
         speechStarted.current = performance.now();
         firstSubtitle.current = false;
@@ -389,8 +389,7 @@ export default function App() {
         setSubtitle('');
         setRecognizedSpeech('');
         setProvisional(true);
-        setStatus('listening');
-        if (turnSpeaker.current === 'partner') setResult(null);
+        if (!running.current) setStatus('listening');
       },
       onCommit: () => {
         silenceAt.current = performance.now();
@@ -507,15 +506,20 @@ export default function App() {
     setTextInput('');
   }
   async function changePronunciation(mode: Settings['pronunciationMode']) {
-    await updateSettings({ pronunciationMode: mode });
-    if (!result?.reply) return;
-    const id = result.id;
+    const version = ++pronunciationVersion.current;
+    const generation = epoch.current;
+    const previousMode = dataRef.current?.settings.pronunciationMode ?? 'kana';
+    setConvertingPronunciation(true);
     try {
+      await updateSettings({ pronunciationMode: mode });
+      if (!result?.reply) return;
+      const id = result.id;
       const response = await api<{ pronunciation: string }>('/pronounce', {
         text: result.reply.responseText,
         mode,
         demo,
       });
+      if (generation !== epoch.current || version !== pronunciationVersion.current) return;
       setResult((old) =>
         old?.id === id && old.reply && dataRef.current?.settings.pronunciationMode === mode
           ? {
@@ -529,7 +533,11 @@ export default function App() {
           : old,
       );
     } catch (error) {
+      if (generation !== epoch.current || version !== pronunciationVersion.current) return;
+      await updateSettings({ pronunciationMode: previousMode });
       notify((error as Error).message);
+    } finally {
+      if (version === pronunciationVersion.current) setConvertingPronunciation(false);
     }
   }
   if (!data)
@@ -568,6 +576,7 @@ export default function App() {
           {(
             [
               { id: 'conversation', name: 'Conversation', icon: AudioLines },
+              { id: 'knowledge', name: 'Knowledge', icon: Lightbulb },
               { id: 'memory', name: 'Your memory', icon: Brain },
               { id: 'profile', name: 'Your profile', icon: UserRound },
             ] as const
@@ -577,7 +586,10 @@ export default function App() {
               className={`nav-item ${view === item.id ? 'selected' : ''}`}
               aria-label={item.name}
               aria-current={view === item.id ? 'page' : undefined}
-              onClick={() => setView(item.id)}
+              onClick={() => {
+                if (view === 'conversation' && item.id !== view) stop();
+                setView(item.id);
+              }}
             >
               <item.icon size={20} />
               <span>{item.name}</span>
@@ -612,10 +624,18 @@ export default function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          {view === 'conversation' ? (
+          {view === 'conversation' || view === 'knowledge' ? (
             <div className="topbar-heading">
-              <p className="eyebrow">LESS TRANSLATING. MORE CONNECTING.</p>
-              <h1>Be part of the conversation.</h1>
+              <p className="eyebrow">
+                {view === 'knowledge'
+                  ? 'LISTEN. UNDERSTAND. EXPLORE.'
+                  : 'LESS TRANSLATING. MORE CONNECTING.'}
+              </p>
+              <h1>
+                {view === 'knowledge'
+                  ? 'Let the conversation spark something.'
+                  : 'Be part of the conversation.'}
+              </h1>
             </div>
           ) : (
             <span className="breadcrumb">
@@ -638,22 +658,50 @@ export default function App() {
               </div>
             )}
             <button
-              className={`connection-status ${data.liveAvailable ? 'configured' : ''}`}
+              className={`connection-status ${view !== 'knowledge' && data.liveAvailable ? 'configured' : ''}`}
               onClick={() => setView('settings')}
             >
               <span />
-              {data.provider === 'mock'
-                ? 'Development fixtures'
-                : data.liveAvailable
-                  ? 'Live verified'
-                  : data.connection.configured
-                    ? 'Check connection'
-                    : 'API key needed'}
+              {view === 'knowledge'
+                ? 'Provider settings'
+                : data.provider === 'mock'
+                  ? 'Development fixtures'
+                  : data.liveAvailable
+                    ? 'Live verified'
+                    : data.connection.configured
+                      ? 'Check connection'
+                      : 'API key needed'}
               <ArrowUpRight size={14} />
             </button>
           </div>
         </header>
         <main>
+          {(view === 'conversation' || view === 'knowledge') && (
+            <div className="mode-switch" aria-label="Choose mode">
+              <button
+                aria-pressed={view === 'conversation'}
+                className={view === 'conversation' ? 'active' : ''}
+                onClick={() => setView('conversation')}
+              >
+                <Languages size={17} />
+                Translation & phonetics
+              </button>
+              <button
+                aria-pressed={view === 'knowledge'}
+                className={view === 'knowledge' ? 'active' : ''}
+                onClick={() => {
+                  if (view !== 'knowledge') {
+                    stop();
+                    setView('knowledge');
+                  }
+                }}
+              >
+                <Lightbulb size={17} />
+                Knowledge sourcing
+              </button>
+            </div>
+          )}
+          {view === 'knowledge' && <KnowledgeWorkspace settings={settings} />}
           {view === 'conversation' && (
             <section className="conversation-page">
               {!live && (setupOpen || (!data.liveAvailable && !data.demoEnabled)) && (
@@ -664,7 +712,7 @@ export default function App() {
                     <p>
                       {data.liveAvailable
                         ? 'Ready. Starting closes the local test and sends microphone audio to the speech service for live captions and replies.'
-                        : 'You can test your microphone now. Live subtitles and replies require the cloud checks above to pass.'}
+                        : 'You can test your microphone now. Live subtitles and replies require the connection checks above to pass.'}
                     </p>
                     <button
                       className="primary-button"
@@ -783,7 +831,7 @@ export default function App() {
                         <button
                           aria-pressed={settings.pronunciationMode === 'kana'}
                           className={settings.pronunciationMode === 'kana' ? 'active' : ''}
-                          disabled={busy}
+                          disabled={busy || convertingPronunciation}
                           onClick={() => void changePronunciation('kana')}
                         >
                           かな
@@ -791,7 +839,7 @@ export default function App() {
                         <button
                           aria-pressed={settings.pronunciationMode === 'ipa'}
                           className={settings.pronunciationMode === 'ipa' ? 'active' : ''}
-                          disabled={busy}
+                          disabled={busy || convertingPronunciation}
                           onClick={() => void changePronunciation('ipa')}
                         >
                           IPA
@@ -799,7 +847,9 @@ export default function App() {
                       </div>
                     </div>
                     <div className="reply-content" aria-live="polite">
-                      {replyError && lastTurn?.speaker === 'partner' ? (
+                      {convertingPronunciation ? (
+                        <p className="reply-empty">Converting pronunciation…</p>
+                      ) : replyError && lastTurn?.speaker === 'partner' ? (
                         <div className="reply-failure">
                           <p className="reply-empty">Could not generate your reply.</p>
                           <p className="error-text" role="alert">
@@ -846,8 +896,9 @@ export default function App() {
                               : 'Waiting for a complete question.'}
                           </p>
                           <p className="reply-hint">
-                            After they finish speaking, one short reply appears here in kana with
-                            its meaning. Partial subtitles do not trigger replies.
+                            After they finish speaking, one short reply appears here in{' '}
+                            {settings.pronunciationMode === 'kana' ? 'hiragana/katakana' : 'IPA'}{' '}
+                            with its meaning. Partial subtitles do not trigger replies.
                           </p>
                         </>
                       )}
@@ -940,9 +991,11 @@ export default function App() {
                     </div>
                   </div>
                   <p className="turn-hint">
-                    {speaker === 'user'
-                      ? 'Your words can teach phier about you. No reply is generated during your turn.'
-                      : 'Keep “Their turn” selected for their questions. Choose “My turn” when you speak; only your words can become a personal memory.'}
+                    {data.provider === 'local'
+                      ? 'Choose “Their turn” for suggested replies. “My turn” does not generate a reply. Automatic memory learning is paused in local mode.'
+                      : speaker === 'user'
+                        ? 'Your words can teach phier about you. No reply is generated during your turn.'
+                        : 'Keep “Their turn” selected for their questions. Choose “My turn” when you speak; only your words can become a personal memory.'}
                   </p>
                   {data.demoEnabled && (
                     <div className="sample-section">

@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import type { AsrEvent, AsrProvider, AsrConnection } from './types';
 import { safeProviderError } from './errors';
 
-export function transcriptionConfiguration(model: string) {
+export function transcriptionConfiguration(model: string, language: 'ja' | 'en' = 'ja') {
   return {
     type: 'session.update',
     session: {
@@ -12,8 +12,8 @@ export function transcriptionConfiguration(model: string) {
           format: { type: 'audio/pcm', rate: 24000 },
           transcription:
             model === 'gpt-live-transcribe'
-              ? { model, languages: ['ja', 'en'], delay: 'low' }
-              : { model, language: 'ja' },
+              ? { model, languages: language === 'en' ? ['en'] : ['ja', 'en'], delay: 'low' }
+              : { model, language },
           turn_detection: null,
           noise_reduction: { type: 'near_field' },
         },
@@ -25,6 +25,7 @@ export class OpenAIAsrProvider implements AsrProvider {
   constructor(
     private key: string,
     private model: string,
+    private language: 'ja' | 'en' = 'ja',
   ) {}
   connect(onEvent: (event: AsrEvent) => void): AsrConnection {
     const socket = new WebSocket('wss://api.openai.com/v1/realtime?intent=transcription', {
@@ -44,7 +45,7 @@ export class OpenAIAsrProvider implements AsrProvider {
       });
       socket.close();
     }, 15_000);
-    socket.on('open', () => send(transcriptionConfiguration(this.model)));
+    socket.on('open', () => send(transcriptionConfiguration(this.model, this.language)));
     socket.on('message', (raw) => {
       try {
         const event = JSON.parse(raw.toString());

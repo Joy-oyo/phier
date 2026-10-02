@@ -2,6 +2,8 @@
 
 A personal conversation companion. Understand Japanese as it is spoken, then see one short reply in hiragana/katakana (or IPA), with its meaning in your language.
 
+Choose **Knowledge sourcing** for a second mode: listen to English speech and automatically see important terms, contextual explanations, industry/academic web sources, and three questions worth exploring. Sourced claim flags use `!`, `!!`, and `!!!` for increasing confidence of inaccuracy. Discoveries accumulate in a separate library for each browser. This mode uses `OPENAI_API_KEY` for speech and web research independently of the translation provider. See [Knowledge mode](docs/knowledge-mode.md) for setup, retention, and limitations.
+
 ## Run locally
 
 Requires Node.js 22.13 or later and npm. Node's built-in SQLite may print an experimental-feature notice.
@@ -17,19 +19,22 @@ The app starts with an empty profile. Examples such as being Chinese or enjoying
 
 ### Enable live conversations
 
+For a local option without API credits, see [Local mode](docs/local-mode.md). It uses Ollama and whisper.cpp for both modes, with public reference lookup for knowledge cards. After downloading the models, run `npm run dev:local` and open port 5176.
+
 Copy `.env.example` to `.env`, then set:
 
 ```dotenv
-PHIER_PROVIDER=openai
-OPENAI_API_KEY=your-key
-OPENAI_TEXT_MODEL=gpt-4.1-mini
-OPENAI_MEMORY_MODEL=gpt-4.1-mini
-OPENAI_TRANSCRIBE_MODEL=gpt-live-transcribe
+GROQ_API_KEY=your-key
+GROQ_TEXT_MODEL=qwen/qwen3.8-27b
 ```
+
+When a Groq key is present, Phier selects it automatically for the free MVP response path. In this
+privacy-first mode, saved personal memories remain local and automatic memory learning is paused;
+use **Your memory** for local manual editing. OpenAI remains an optional fallback.
 
 Use the compact **Microphone test** card above **Set the scene** in the context panel. Choose **Test microphone**, then **Allow microphone & test**. Approve the browser prompt and confirm **Sound detected** and an increasing captured duration. This local-only check uses the same 24 kHz mono PCM16 AudioWorklet capture path as live listening, with no audio upload, recording, or playback; it stops after 30 seconds, when you stop/leave the page, or when you collapse the card. Expanding the card alone does not request microphone access. Browser permission remains under your control. Choose the desired input device in your browser or system sound settings.
 
-Then choose **Check connection**. This reloads `.env` without restarting and makes small live tests of translation/replies, memory extraction, and speech-session access. Only successful cloud checks unlock **Start listening**. Chrome is the primary tested browser. Microphone capture requires HTTPS or localhost. The server permits same-origin microphone access and disables camera access; an embedding page must also grant microphone permission. An embedded browser may require host-app/system permission that this web app cannot grant. If blocked, open the address directly in Chrome or Safari.
+Then choose **Check connection**. This reloads `.env` without restarting and makes a small live reply test; with TRTC, speech readiness is checked from its local configuration. Only successful checks unlock **Start listening**. Chrome is the primary tested browser. Microphone capture requires HTTPS or localhost. The server permits same-origin microphone access and disables camera access; an embedding page must also grant microphone permission. An embedded browser may require host-app/system permission that this web app cannot grant. If blocked, open the address directly in Chrome or Safari.
 
 Your account needs API billing/quota and access to the selected models. Credentials stay on the server. API requests incur usage charges. Put the key in the git-ignored `.env`, never `.env.example`. The template is safe to share only while its key field is blank.
 
@@ -43,7 +48,7 @@ Leaving the conversation screen ends an active listening/sample session and rele
 
 ### Real-time translation with TRTC
 
-Listening can stream through Tencent RTC instead of the OpenAI speech session. TRTC returns each Japanese segment together with its translation, so subtitles appear without a separate translation request.
+Listening can stream through Tencent RTC instead of the OpenAI speech session. TRTC returns each Japanese segment together with its translation, so subtitles appear without a separate language-model request.
 
 Add these to `.env` and restart:
 
@@ -54,7 +59,7 @@ TRTC_SOURCE_LANGUAGE=ja
 TRTC_TARGET_LANGUAGE=en
 ```
 
-Create an **RTC-Engine** application in the [TRTC console](https://console.trtc.io/) and enable speech-to-text and real-time translation on it ([SDK integration](https://trtc.io/document/79355?product=conversationalai), [Web SDK](https://trtc.io/document/59649)). UserSig is minted on the server, so the secret key never reaches the browser. Translation targets follow **Explanation language**; reply generation still uses your OpenAI key. Without these values, phier keeps using the OpenAI speech session.
+Create an **RTC-Engine** application in the [TRTC console](https://console.trtc.io/) and enable speech-to-text and real-time translation on it ([SDK integration](https://trtc.io/document/79355?product=conversationalai), [Web SDK](https://trtc.io/document/59649)). UserSig is minted on the server, so the secret key never reaches the browser. Translation targets follow **Explanation language**; reply generation uses Groq when `GROQ_API_KEY` is present. Without these TRTC values, Phier requires an OpenAI key for its speech session.
 
 ### Sample mode
 
@@ -106,7 +111,7 @@ server/app.ts             HTTP API
 server/audio-relay.ts     WebSocket relay with bounded audio turns
 server/service.ts         Conversation orchestration and asynchronous learning
 server/store.ts           SQLite persistence and memory retrieval
-server/providers/         Mock and OpenAI adapters
+server/providers/         Mock, Groq, and OpenAI adapters
 tests/                    Core tests and browser flows
 docs/                     Architecture, retention and provider documentation
 ```

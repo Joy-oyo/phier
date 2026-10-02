@@ -7,6 +7,8 @@ import { ProviderRuntime, readLocalEnvironment } from './providers/runtime';
 import { createApp } from './app';
 import { attachAudioRelay } from './audio-relay';
 import { readTrtcConfig } from './trtc';
+import { OpenAIAsrProvider } from './providers/asr';
+import { LocalAsrProvider } from './providers/local';
 
 const localEnvironment = readLocalEnvironment();
 const trtc = readTrtcConfig(localEnvironment);
@@ -20,6 +22,34 @@ const { app, service, origins } = createApp(store, provider, {
 });
 const server = createServer(app);
 const audio = attachAudioRelay(server, provider.asr, origins, () => provider.liveAvailable);
+const knowledgeAudio = attachAudioRelay(
+  server,
+  {
+    connect(onEvent) {
+      const env = readLocalEnvironment();
+      if (
+        env.PHIER_KNOWLEDGE_PROVIDER === 'local' ||
+        (!env.PHIER_KNOWLEDGE_PROVIDER && env.PHIER_PROVIDER === 'local')
+      )
+        return new LocalAsrProvider(env.WHISPER_URL, 'en').connect(onEvent);
+      return new OpenAIAsrProvider(
+        env.OPENAI_API_KEY!,
+        env.OPENAI_TRANSCRIBE_MODEL || 'gpt-live-transcribe',
+        'en',
+      ).connect(onEvent);
+    },
+  },
+  origins,
+  () => {
+    const env = readLocalEnvironment();
+    return (
+      env.PHIER_KNOWLEDGE_PROVIDER === 'local' ||
+      (!env.PHIER_KNOWLEDGE_PROVIDER && env.PHIER_PROVIDER === 'local') ||
+      Boolean(env.OPENAI_API_KEY?.trim())
+    );
+  },
+  '/api/knowledge/audio',
+);
 // An embedding host must still delegate microphone permission to its frame.
 app.use((_req, res, next) => {
   res.setHeader('Permissions-Policy', 'microphone=(self), camera=()');
@@ -50,6 +80,8 @@ async function stop() {
   stopping = true;
   for (const socket of audio.clients) socket.close();
   audio.close();
+  for (const socket of knowledgeAudio.clients) socket.close();
+  knowledgeAudio.close();
   service.clear();
   await service.drain();
   await vite?.close();

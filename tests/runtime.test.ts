@@ -5,6 +5,7 @@ import { MockProvider } from '../server/providers/mock';
 import { ConversationService } from '../server/service';
 import { Store } from '../server/store';
 import { defaultSettings } from '../shared/types';
+import { GroqProvider } from '../server/providers/groq';
 const base: RuntimeConfig = {
   mode: 'openai',
   demoEnabled: false,
@@ -22,9 +23,43 @@ describe('real-provider readiness', () => {
     await expect(runtime.extract('I enjoy tennis.', defaultSettings)).rejects.toThrow('API key');
     expect((await runtime.check()).configured).toBe(false);
   });
-  it('reports readiness for TRTC sessions without the OpenAI speech probe', () => {
+  it('does not claim TRTC readiness without a response provider', () => {
     const runtime = new ProviderRuntime(() => ({ ...base, trtcConfigured: true }));
-    expect(runtime.liveAvailable).toBe(true);
+    expect(runtime.liveAvailable).toBe(false);
+  });
+  it('keeps saved memories out of the free Groq MVP provider', async () => {
+    const underlying = {
+      translate: vi.fn().mockResolvedValue('Hello'),
+      generate: vi.fn().mockResolvedValue({}),
+      pronounce: vi.fn().mockResolvedValue('こんにちは'),
+      extract: vi.fn().mockResolvedValue([{ content: 'secret' }]),
+    };
+    const provider = new GroqProvider('test-key', 'test-model', underlying as any);
+    await provider.generate({
+      text: 'こんにちは',
+      translation: 'Hello',
+      settings: defaultSettings,
+      memories: [
+        {
+          id: 'private-memory',
+          content: 'I live at a private address',
+          key: 'location.home',
+          category: 'background',
+          contexts: [],
+          sensitivity: 'sensitive',
+          confidence: 1,
+          source: 'manual',
+          status: 'active',
+          createdAt: '',
+          updatedAt: '',
+          lastUsedAt: null,
+        },
+      ],
+      recent: [],
+    });
+    expect(underlying.generate.mock.calls[0][0].memories).toEqual([]);
+    expect(await provider.extract('I live at a private address', defaultSettings)).toEqual([]);
+    expect(underlying.extract).not.toHaveBeenCalled();
   });
   it('reloads credentials and requires all real component probes before reporting readiness', async () => {
     let config = base;

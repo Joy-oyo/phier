@@ -74,7 +74,7 @@ export interface TurnResult {
 export interface Bootstrap {
   settings: Settings;
   memories: Memory[];
-  provider: 'mock' | 'openai';
+  provider: 'mock' | 'openai' | 'groq' | 'local';
   liveAvailable: boolean;
   configurationError: string | null;
   demoEnabled: boolean;
@@ -88,7 +88,7 @@ export interface ServiceCheck {
 }
 export interface ConnectionStatus {
   configured: boolean;
-  provider: 'openai' | 'mock';
+  provider: 'openai' | 'groq' | 'mock' | 'local';
   checkedAt: string | null;
   models: { text: string; memory: string; speech: string };
   text: ServiceCheck;
