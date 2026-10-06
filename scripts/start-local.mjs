@@ -36,7 +36,8 @@ async function reachable(url) {
   }
 }
 async function waitFor(url) {
-  const until = Date.now() + 30_000;
+  // The first launch may compile Metal shaders before the service can listen.
+  const until = Date.now() + 120_000;
   while (!(await reachable(url))) {
     if (stopping || Date.now() > until) throw new Error(`Local service did not start: ${url}`);
     await new Promise((resolve) => setTimeout(resolve, 300));

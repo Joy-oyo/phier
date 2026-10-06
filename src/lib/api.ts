@@ -4,12 +4,20 @@ export async function api<T>(
   method = body === undefined ? 'GET' : 'POST',
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', 'X-Phier-Client': '1' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'X-Phier-Client': '1' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  } catch (error) {
+    if (signal?.aborted || !(error instanceof TypeError)) throw error;
+    throw new Error(
+      'Connection to Phier was interrupted. Keep Phier running, reload this page, then retry.',
+    );
+  }
   if (!response.ok) {
     const result = await response
       .json()

@@ -71,7 +71,7 @@ if (!production) {
 }
 server.listen(port, '127.0.0.1', () =>
   console.log(
-    `phier → http://localhost:${port} · ${provider.mode === 'mock' ? 'explicit development fixtures' : 'live provider'}`,
+    `phier → http://localhost:${port} · ${provider.mode === 'mock' ? 'explicit development fixtures' : provider.mode === 'local' ? 'local models' : 'cloud provider'}`,
   ),
 );
 let stopping = false;
